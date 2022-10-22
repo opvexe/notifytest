@@ -2,12 +2,14 @@
 // Use of this source code is governed by the MIT license that can be
 // found in the LICENSE file.
 
+//go:build darwin && !kqueue && cgo
 // +build darwin,!kqueue,cgo
 
 package notify
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 )
@@ -117,9 +119,11 @@ func (w *watch) strip(base string, set uint32) uint32 {
 // Dispatch is a stream function which forwards given file events for the watched
 // path to underlying FileInfo channel.
 func (w *watch) Dispatch(ev []FSEvent) {
+	fmt.Println("Dispatch")
 	events := atomic.LoadUint32(&w.events)
 	isrec := (atomic.LoadInt32(&w.isrec) == 1)
 	for i := range ev {
+		fmt.Println("Incoming Event: ", ev[i].Path)
 		if ev[i].Flags&FSEventsHistoryDone != 0 {
 			w.flushed = true
 			continue
@@ -143,6 +147,7 @@ func (w *watch) Dispatch(ev []FSEvent) {
 				continue
 			}
 			base = ev[i].Path[n+1:]
+			fmt.Println("Base ====>>>", base, "+++++", strings.IndexByte(base, '/'))
 			if !isrec && strings.IndexByte(base, '/') != -1 {
 				continue
 			}
@@ -153,6 +158,7 @@ func (w *watch) Dispatch(ev []FSEvent) {
 			continue
 		}
 		for _, e := range splitflags(e) {
+			fmt.Println("====>>>>", ev[i].ID, Event(e))
 			dbgprintf("%d: single event: %v", ev[i].ID, Event(e))
 			w.c <- &event{
 				fse:   ev[i],
@@ -197,6 +203,7 @@ func (fse *fsevents) watch(path string, event Event, isrec int32) (err error) {
 		events: uint32(event),
 		isrec:  isrec,
 	}
+	fmt.Println("newStream")
 	w.stream = newStream(path, w.Dispatch)
 	if err = w.stream.Start(); err != nil {
 		return err
@@ -247,6 +254,7 @@ func (fse *fsevents) Rewatch(path string, oldevent, newevent Event) error {
 // error when setting the watch-point by FSEvents fails or with errAlreadyWatched
 // error when the given path is already watched.
 func (fse *fsevents) RecursiveWatch(path string, event Event) error {
+	fmt.Println("RecursiveWatch")
 	return fse.watch(path, event, 1)
 }
 

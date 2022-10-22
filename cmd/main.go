@@ -26,10 +26,14 @@ func main() {
 
 	// Set up a watchpoint listening on events within current working directory.
 	// Dispatch each create and remove events separately to c.
-	// Y:\1006100210002\Info
-	if err := notify.Watch(".", c, notify.All); err != nil {
+	// Y:\1006100210002\Info\...
+	// 1. 测试 （Y:\1006100210002\Info\...）
+	// 2. /Users/taoshumin_vendor/go/src/yho.io/notify/cmd/...
+	if err := notify.Watch("Y:\\1006100210002\\Info\\...", c, notify.All); err != nil {
+		//if err := notify.Watch("/Users/taoshumin_vendor/go/src/yho.io/notify/cmd/...", c, notify.All); err != nil {
 		log.Fatal(err)
 	}
+
 	defer notify.Stop(c)
 
 	for {

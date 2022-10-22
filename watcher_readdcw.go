@@ -2,12 +2,14 @@
 // Use of this source code is governed by the MIT license that can be
 // found in the LICENSE file.
 
+//go:build windows
 // +build windows
 
 package notify
 
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -93,7 +95,7 @@ func (g *grip) register(cph syscall.Handle) (err error) {
 		syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE,
 		nil,
 		syscall.OPEN_EXISTING,
-		syscall.FILE_FLAG_BACKUP_SEMANTICS|syscall.FILE_FLAG_OVERLAPPED,
+		syscall.FILE_FLAG_BACKUP_SEMANTICS|syscall.FILE_FLAG_OVERLAPPED|syscall.OPEN_EXISTING,
 		0,
 	); err != nil {
 		return
@@ -113,7 +115,7 @@ func (g *grip) readDirChanges() error {
 	if handle == syscall.InvalidHandle {
 		return nil // Handle was closed.
 	}
-
+	fmt.Println("readDirChanges: ", g.recursive)
 	return syscall.ReadDirectoryChanges(
 		handle,
 		&g.buffer[0],
@@ -131,6 +133,7 @@ func (g *grip) readDirChanges() error {
 // parameter in ReadDirectoryChangesW function.
 func encode(filter uint32) uint32 {
 	e := Event(filter & (onlyNGlobalEvents | onlyNotifyChanges))
+	fmt.Println("encode: ", e)
 	if e&dirmarker != 0 {
 		return uint32(FileNotifyChangeDirName)
 	}
@@ -176,6 +179,8 @@ func newWatched(cph syscall.Handle, filter uint32, recursive bool,
 	if wd.pathw, err = syscall.UTF16FromString(path); err != nil {
 		return
 	}
+	fmt.Println(path)
+	fmt.Println("pathW: ", wd.pathw)
 	if err = wd.recreate(cph); err != nil {
 		return
 	}
@@ -184,11 +189,14 @@ func newWatched(cph syscall.Handle, filter uint32, recursive bool,
 
 // TODO : doc
 func (wd *watched) recreate(cph syscall.Handle) (err error) {
-	filefilter := wd.filter &^ uint32(FileNotifyChangeDirName)
+	// Todo maybe this is bug
+	filefilter := wd.filter &^ uint32(FileNotifyChangeDirName|Create|Remove)
+	fmt.Println("recreate [filefilter]", filefilter)
 	if err = wd.updateGrip(0, cph, filefilter == 0, filefilter); err != nil {
 		return
 	}
 	dirfilter := wd.filter & uint32(FileNotifyChangeDirName|Create|Remove)
+	fmt.Println("recreate [dirfilter]", dirfilter)
 	if err = wd.updateGrip(1, cph, dirfilter == 0, wd.filter|uint32(dirmarker)); err != nil {
 		return
 	}
@@ -286,6 +294,7 @@ func (r *readdcw) Watch(path string, event Event) error {
 
 // RecursiveWatch implements notify.RecursiveWatcher interface.
 func (r *readdcw) RecursiveWatch(path string, event Event) error {
+	fmt.Println("RecursiveWatch")
 	return r.watch(path, event, true)
 }
 
@@ -293,6 +302,7 @@ func (r *readdcw) RecursiveWatch(path string, event Event) error {
 // already exists, function tries to rewatch it with new filters(NOT VALID). Moreover,
 // watch starts the main event loop goroutine when called for the first time.
 func (r *readdcw) watch(path string, event Event, recursive bool) error {
+	fmt.Println("watch: recursive is ", recursive)
 	if event&^(All|fileNotifyChangeAll) != 0 {
 		return errors.New("notify: unknown event")
 	}
@@ -307,6 +317,7 @@ func (r *readdcw) watch(path string, event Event, recursive bool) error {
 	}
 
 	if err := r.lazyinit(); err != nil {
+		fmt.Println("watch: lazyinit: ", err)
 		return err
 	}
 
@@ -330,7 +341,7 @@ func (r *readdcw) lazyinit() (err error) {
 		if cph, err = syscall.CreateIoCompletionPort(cph, 0, 0, 0); err != nil {
 			return
 		}
-
+		fmt.Println("lazyinit cph: ", cph)
 		r.cph, r.start = cph, true
 		go r.loop()
 	}
@@ -344,6 +355,7 @@ func (r *readdcw) loop() {
 	var overlapped *syscall.Overlapped
 	for {
 		err := syscall.GetQueuedCompletionStatus(r.cph, &n, &key, &overlapped, syscall.INFINITE)
+		fmt.Println("GetQueuedCompletionStatus: ", key, "Err", err)
 		if key == stateCPClose {
 			r.Lock()
 			handle := r.cph
@@ -353,15 +365,19 @@ func (r *readdcw) loop() {
 			r.wg.Done()
 			return
 		}
+		fmt.Println("loop: key is ", key)
 		if overlapped == nil {
+			fmt.Println("overlapped====>>>", overlapped)
 			// TODO: check key == rewatch delete or 0(panic)
 			continue
 		}
 		overEx := (*overlappedEx)(unsafe.Pointer(overlapped))
 		if overEx == nil || overEx.parent == nil {
+			fmt.Println("overEx.parent: ", overEx, "Key: ", key)
 			dbgprintf("incomplete completion status transferred=%d, overlapped=%#v, key=%#b", n, overEx, key)
 			continue
 		} else if n != 0 {
+			fmt.Println("loop [loopevent]")
 			r.loopevent(n, overEx)
 		}
 		if err = overEx.parent.readDirChanges(); err != nil {
@@ -421,6 +437,7 @@ func (r *readdcw) loopevent(n uint32, overEx *overlappedEx) {
 // TODO(pknap) : doc
 func (r *readdcw) send(es []*event) {
 	for _, e := range es {
+		fmt.Println("ev: ", e)
 		var syse Event
 		if e.e, syse = decode(e.filter, e.action); e.e == 0 && syse == 0 {
 			continue

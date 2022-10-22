@@ -4,7 +4,10 @@
 
 package notify
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 // watchAdd TODO(rjeczalik)
 func watchAdd(nd node, c chan<- EventInfo, e Event) eventDiff {
@@ -284,9 +287,13 @@ func (t *recursiveTree) Watch(path string, c chan<- EventInfo,
 		// TODO(rjeczalik): cleanup this panic after implementation is stable
 		panic("watch requested but no parent watchpoint found: " + cur.Name)
 	case diff[0] == 0:
+		fmt.Println("====>>>Diff: ", diff[0])
 		if isrec {
+			fmt.Println("isrec => 1111===>>Diff-1", diff[1])
 			err = t.w.RecursiveWatch(cur.Name, diff[1])
+			fmt.Println("+++++++", err)
 		} else {
+			fmt.Println("Noisrec ==", diff[1])
 			err = t.w.Watch(cur.Name, diff[1])
 		}
 		if err != nil {
